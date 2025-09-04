@@ -164,7 +164,7 @@ checksum = "83d059a296a47436748557a353c5e6c5705b9470ef6c95cfc52c21a8814ddac2"
 
 [[package]]
 name = "otel-instrument"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "opentelemetry",
  "opentelemetry-semantic-conventions",
