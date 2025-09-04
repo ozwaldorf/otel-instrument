@@ -1,10 +1,10 @@
 # otel-instrument
 
-A procedural macro for instrumenting async Rust functions with OpenTelemetry tracing. Similar to the `tracing` crate's `#[instrument]` macro but specifically designed for OpenTelemetry spans.
+A procedural macro for instrumenting Rust functions with OpenTelemetry tracing. Similar to the `tracing` crate's `#[instrument]` macro but specifically designed for OpenTelemetry spans. Supports both async and sync functions.
 
 ## Features
 
-- **Async-focused**: Designed specifically for async functions
+- **Async and sync support**: Works with both async and synchronous functions
 - **Parameter capture**: Automatically records function parameters as span attributes
 - **Custom fields**: Add custom attributes to spans
 - **Return value capture**: Optionally record return values
@@ -25,6 +25,8 @@ otel-instrument = "0.1.0"
 
 ### Basic Usage
 
+#### Async Functions
+
 ```rust
 use otel_instrument::{instrument, tracer_name};
 
@@ -32,8 +34,23 @@ use otel_instrument::{instrument, tracer_name};
 tracer_name!("my-service");
 
 #[instrument]
-async fn my_function(user_id: u64, name: &str) -> Result<String, Box<dyn std::error::Error>> {
+async fn my_async_function(user_id: u64, name: &str) -> Result<String, Box<dyn std::error::Error>> {
     // Your async code here
+    Ok(format!("Hello, {}", name))
+}
+```
+
+#### Sync Functions
+
+```rust
+use otel_instrument::{instrument, tracer_name};
+
+// Define a tracer name for the instrument macros. Must be in module scope
+tracer_name!("my-service");
+
+#[instrument]
+fn my_sync_function(user_id: u64, name: &str) -> Result<String, Box<dyn std::error::Error>> {
+    // Your sync code here
     Ok(format!("Hello, {}", name))
 }
 ```
@@ -194,6 +211,46 @@ async fn validate_user(
 }
 ```
 
+### Sync Function Examples
+
+The macro works identically with synchronous functions:
+
+```rust
+use otel_instrument::{instrument, tracer_name};
+
+tracer_name!("sync-service");
+
+#[derive(Debug)]
+struct ProcessingError;
+
+// Basic sync function
+#[instrument]
+fn process_data(input: &str) -> Result<String, ProcessingError> {
+    Ok(input.to_uppercase())
+}
+
+// Sync function with custom attributes
+#[instrument(
+    skip(secret_key),
+    fields(operation = "encryption", version = "1.0"),
+    ret,
+    err
+)]
+fn encrypt_data(data: &str, secret_key: &str) -> Result<String, ProcessingError> {
+    // Encryption logic here
+    Ok(format!("encrypted_{}", data))
+}
+
+// Sync function with parent context
+#[instrument(parent = parent_ctx)]
+fn child_processing(
+    parent_ctx: opentelemetry::Context,
+    data: &str,
+) -> Result<String, ProcessingError> {
+    Ok(format!("processed: {}", data))
+}
+```
+
 ## Attributes
 
 ### `skip(param1, param2, ...)`
@@ -216,6 +273,6 @@ Set a parent context for the span. The expression must evaluate to something tha
 
 ## Requirements
 
-- Functions must be `async`
+- Functions can be either `async` or synchronous
 - OpenTelemetry must be properly configured in your application
-- The macro uses the global tracer named "otel-instrument"
+- The macro uses the global tracer specified by the `tracer_name!` macro
