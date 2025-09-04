@@ -3,7 +3,7 @@
 use proc_macro::TokenStream;
 use quote::quote;
 use std::collections::HashSet;
-use syn::{parse::Parse, parse::ParseStream, parse_macro_input, Expr, Ident, ItemFn, Token};
+use syn::{Expr, Ident, ItemFn, Token, parse::Parse, parse::ParseStream, parse_macro_input};
 
 #[derive(Default)]
 struct InstrumentArgs {
@@ -13,6 +13,7 @@ struct InstrumentArgs {
     ret: bool,
     err: bool,
     name: Option<String>,
+    parent: Option<Expr>,
 }
 
 impl Parse for InstrumentArgs {
@@ -59,6 +60,11 @@ impl Parse for InstrumentArgs {
                     input.parse::<Token![=]>()?;
                     let name_str: syn::LitStr = input.parse()?;
                     args.name = Some(name_str.value());
+                }
+                "parent" => {
+                    input.parse::<Token![=]>()?;
+                    let parent_expr: Expr = input.parse()?;
+                    args.parent = Some(parent_expr);
                 }
                 _ => {
                     return Err(syn::Error::new_spanned(ident, "Unknown attribute"));
@@ -210,13 +216,35 @@ fn instrument_impl(
         }
     };
 
+    // Generate span creation code based on whether parent is specified
+    let span_creation = if let Some(parent_expr) = &args.parent {
+        quote! {
+            let parent_ctx = {
+                use ::opentelemetry::Context;
+                let parent_value = #parent_expr;
+
+                // The parent_value should implement Into<Context> or be a Context
+                // This allows for flexibility in what users can pass:
+                // - Context directly
+                // - Span (which can be converted to Context)
+                // - SpanContext (which can be used to create Context)
+                parent_value.into()
+            };
+            let mut span = tracer.start_with_context(#span_name, &parent_ctx);
+        }
+    } else {
+        quote! {
+            let mut span = tracer.start(#span_name);
+        }
+    };
+
     // Create the instrumented function body
     let instrumented_body = quote! {
         {
             use ::opentelemetry::{trace::{Tracer, Span}, context::FutureExt, global};
 
             let tracer = global::tracer(_OTEL_TRACER_NAME);
-            let mut span = tracer.start(#span_name);
+            #span_creation
 
             // Set parameter attributes
             #(#span_attrs)*

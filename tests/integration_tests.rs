@@ -1,3 +1,4 @@
+use opentelemetry::trace::TraceContextExt;
 use otel_instrument::{instrument, tracer_name};
 
 tracer_name!("asdf");
@@ -71,6 +72,38 @@ async fn test_combined_function(username: &str, _password: &str) -> Result<Strin
     }
 }
 
+// Test parent attribute with Context
+#[instrument(parent = parent_ctx)]
+async fn test_parent_context_function(
+    param: &str,
+    parent_ctx: opentelemetry::Context,
+) -> Result<String, String> {
+    Ok(format!("Child span with param: {param}"))
+}
+
+// Test parent attribute with expression
+#[instrument(parent = get_parent_context())]
+async fn test_parent_expression_function(param: &str) -> Result<String, String> {
+    Ok(format!("Child span with param: {param}"))
+}
+
+// Test parent combined with other attributes
+#[instrument(parent = parent_ctx, name = "child_operation", ret)]
+async fn test_parent_with_other_attrs(
+    parent_ctx: opentelemetry::Context,
+    value: i32,
+) -> Result<i32, String> {
+    Ok(value * 2)
+}
+
+// Helper function to create a parent context
+fn get_parent_context() -> opentelemetry::Context {
+    use opentelemetry::{global, trace::Tracer};
+    let tracer = global::tracer("test-tracer");
+    let span = tracer.start("parent-span");
+    opentelemetry::Context::current_with_span(span)
+}
+
 #[tokio::test]
 async fn test_successful_instrumentation() {
     let result = test_function("world").await;
@@ -141,4 +174,32 @@ async fn test_combined_attributes_success() {
 async fn test_combined_attributes_failure() {
     let result = test_combined_function("user", "password123").await;
     assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn test_parent_context_attribute() {
+    use opentelemetry::{global, trace::Tracer};
+    let tracer = global::tracer("test-tracer");
+    let parent_span = tracer.start("parent-span");
+    let parent_ctx = opentelemetry::Context::current_with_span(parent_span);
+
+    let result = test_parent_context_function("test", parent_ctx).await;
+    assert_eq!(result.unwrap(), "Child span with param: test");
+}
+
+#[tokio::test]
+async fn test_parent_expression_attribute() {
+    let result = test_parent_expression_function("test").await;
+    assert_eq!(result.unwrap(), "Child span with param: test");
+}
+
+#[tokio::test]
+async fn test_parent_with_other_attributes() {
+    use opentelemetry::{global, trace::Tracer};
+    let tracer = global::tracer("test-tracer");
+    let parent_span = tracer.start("parent-span");
+    let parent_ctx = opentelemetry::Context::current_with_span(parent_span);
+
+    let result = test_parent_with_other_attrs(parent_ctx, 21).await;
+    assert_eq!(result.unwrap(), 42);
 }

@@ -10,6 +10,7 @@ A procedural macro for instrumenting async Rust functions with OpenTelemetry tra
 - **Return value capture**: Optionally record return values
 - **Error handling**: Enhanced error capture with span status updates
 - **Flexible skipping**: Skip specific parameters or all parameters from instrumentation
+- **Parent span support**: Set explicit parent-child span relationships
 
 ## Installation
 
@@ -114,6 +115,41 @@ async fn calculate(a: i32, b: i32) -> Result<i32, MathError> {
 }
 ```
 
+### Parent Span Context
+
+Set a parent context to create child spans:
+
+```rust
+use otel_instrument::{instrument, tracer_name};
+use opentelemetry::{global, trace::{Tracer, TraceContextExt}, Context};
+
+tracer_name!("parent-child-service");
+
+#[derive(Debug)]
+struct UserData { id: u64 }
+
+// Using a context parameter
+#[instrument(parent = parent_ctx)]
+async fn child_operation(
+    user_id: u64,
+    parent_ctx: opentelemetry::Context
+) -> Result<UserData, Box<dyn std::error::Error>> {
+    Ok(UserData { id: user_id })
+}
+
+// Using an expression
+#[instrument(parent = get_parent_context())]
+async fn another_child_operation(data: &str) -> Result<String, Box<dyn std::error::Error>> {
+    Ok(data.to_uppercase())
+}
+
+fn get_parent_context() -> opentelemetry::Context {
+    let tracer = global::tracer("parent-tracer");
+    let span = tracer.start("parent-span");
+    opentelemetry::Context::current_with_span(span)
+}
+```
+
 ### Combined Usage
 
 Use multiple attributes together:
@@ -141,6 +177,21 @@ async fn authenticate_user(
 ) -> Result<AuthToken, AuthError> {
     Ok(AuthToken { token: "token123".to_string() })
 }
+
+// Combined with parent
+#[instrument(
+    parent = parent_ctx,
+    name = "user_validation", 
+    skip(password),
+    ret
+)]
+async fn validate_user(
+    parent_ctx: opentelemetry::Context,
+    username: &str,
+    password: &str,
+) -> Result<bool, AuthError> {
+    Ok(username == "admin")
+}
 ```
 
 ## Attributes
@@ -159,6 +210,9 @@ Record the return value as a span attribute named "return".
 
 ### `err`
 Record error values as span attributes and set appropriate span status. When an error occurs, the span status is set to error with the error description.
+
+### `parent = <expression>`
+Set a parent context for the span. The expression must evaluate to something that implements `Into<opentelemetry::Context>`. This allows creating child spans with explicit parent-child relationships.
 
 ## Requirements
 
