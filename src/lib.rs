@@ -1,3 +1,5 @@
+#![doc = include_str!("../README.md")]
+
 use proc_macro::TokenStream;
 use quote::quote;
 use std::collections::HashSet;
@@ -66,28 +68,32 @@ impl Parse for InstrumentArgs {
     }
 }
 
-/// A procedural macro that instruments async functions with OpenTelemetry tracing.
-/// Similar to tracing's #[instrument] macro but specifically designed for OpenTelemetry.
-///
-/// # Attributes
-///
-/// - `skip(param1, param2)`: Skip specific parameters from being recorded as attributes
-/// - `skip_all`: Skip all parameters from being recorded as attributes  
-/// - `fields(key = value)`: Add custom fields to the span
-/// - `ret`: Record the return value as a span attribute
-/// - `err`: Record error values as span attributes
+/// Define the global tracer name for instrumentation.
+/// If not called, defaults to "otel-instrument".
 ///
 /// # Example
-///
 /// ```rust
-/// use otel_instrument::instrument;
+/// use otel_instrument::tracer_name;
 ///
-/// #[instrument(skip(password), ret, err)]
-/// async fn my_function(username: &str, password: &str) -> Result<String, String> {
-///     // Your async code here
-///     Ok(format!("Hello, {}", username))
-/// }
+/// tracer_name!("my-service");
 /// ```
+#[proc_macro]
+pub fn tracer_name(input: TokenStream) -> TokenStream {
+    let tracer_name = if input.is_empty() {
+        "otel-instrument".to_string()
+    } else {
+        let literal: syn::LitStr = parse_macro_input!(input as syn::LitStr);
+        literal.value()
+    };
+
+    let expanded = quote! {
+        pub(crate) const _OTEL_TRACER_NAME: &str = #tracer_name;
+    };
+
+    expanded.into()
+}
+
+/// See crate level documentation for usage.
 #[proc_macro_attribute]
 pub fn instrument(args: TokenStream, input: TokenStream) -> TokenStream {
     let input_fn = parse_macro_input!(input as ItemFn);
@@ -202,7 +208,7 @@ fn instrument_impl(
         {
             use ::opentelemetry::{trace::{Tracer, Span}, context::FutureExt, global};
 
-            let tracer = global::tracer("otel-instrument");
+            let tracer = global::tracer(_OTEL_TRACER_NAME);
             let mut span = tracer.start(#fn_name_str);
 
             // Set parameter attributes

@@ -1,4 +1,6 @@
-use otel_instrument::instrument;
+use otel_instrument::{instrument, tracer_name};
+
+tracer_name!("asdf");
 
 // Basic functionality tests
 #[instrument]
@@ -72,7 +74,7 @@ async fn test_skip_attribute() {
 #[tokio::test]
 async fn test_skip_all_attribute() {
     let result = test_skip_all_function("secret", "token").await;
-    assert_eq!(result.unwrap(), "Success");
+    assert_eq!(result.unwrap(), "Success: token");
 }
 
 #[tokio::test]
