@@ -12,6 +12,7 @@ struct InstrumentArgs {
     fields: Vec<(String, Expr)>,
     ret: bool,
     err: bool,
+    name: Option<String>,
 }
 
 impl Parse for InstrumentArgs {
@@ -53,6 +54,11 @@ impl Parse for InstrumentArgs {
                 }
                 "err" => {
                     args.err = true;
+                }
+                "name" => {
+                    input.parse::<Token![=]>()?;
+                    let name_str: syn::LitStr = input.parse()?;
+                    args.name = Some(name_str.value());
                 }
                 _ => {
                     return Err(syn::Error::new_spanned(ident, "Unknown attribute"));
@@ -115,6 +121,7 @@ fn instrument_impl(
 ) -> Result<proc_macro2::TokenStream, syn::Error> {
     let fn_name = &input_fn.sig.ident;
     let fn_name_str = fn_name.to_string();
+    let span_name = args.name.unwrap_or(fn_name_str.clone());
 
     // Check if function is async
     if input_fn.sig.asyncness.is_none() {
@@ -209,7 +216,7 @@ fn instrument_impl(
             use ::opentelemetry::{trace::{Tracer, Span}, context::FutureExt, global};
 
             let tracer = global::tracer(_OTEL_TRACER_NAME);
-            let mut span = tracer.start(#fn_name_str);
+            let mut span = tracer.start(#span_name);
 
             // Set parameter attributes
             #(#span_attrs)*

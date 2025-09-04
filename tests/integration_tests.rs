@@ -43,6 +43,24 @@ async fn test_err_function() -> Result<(), String> {
     Err("Test error".to_string())
 }
 
+// Test name functionality
+#[instrument(name = "custom_span_name")]
+async fn test_name_function(param: &str) -> Result<String, String> {
+    Ok(format!("Hello, {param}"))
+}
+
+// Test name with empty string (should use function name as fallback)
+#[instrument(name = "")]
+async fn test_empty_name_function() -> Result<String, String> {
+    Ok("test".to_string())
+}
+
+// Test name combined with other attributes
+#[instrument(name = "login_operation", skip(password), ret)]
+async fn test_name_with_other_attrs(username: &str, _password: &str) -> Result<String, String> {
+    Ok(format!("User: {username}"))
+}
+
 // Test combination of features
 #[instrument(skip(password), ret, err, fields(operation = "login"))]
 async fn test_combined_function(username: &str, _password: &str) -> Result<String, String> {
@@ -93,6 +111,24 @@ async fn test_ret_attribute() {
 async fn test_err_attribute() {
     let result = test_err_function().await;
     assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn test_name_attribute() {
+    let result = test_name_function("world").await;
+    assert_eq!(result.unwrap(), "Hello, world");
+}
+
+#[tokio::test]
+async fn test_empty_name_fallback() {
+    let result = test_empty_name_function().await;
+    assert_eq!(result.unwrap(), "test");
+}
+
+#[tokio::test]
+async fn test_name_with_other_attributes() {
+    let result = test_name_with_other_attrs("admin", "secret").await;
+    assert_eq!(result.unwrap(), "User: admin");
 }
 
 #[tokio::test]
