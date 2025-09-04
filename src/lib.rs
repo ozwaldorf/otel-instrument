@@ -130,12 +130,7 @@ fn instrument_impl(
     let span_name = args.name.unwrap_or(fn_name_str.clone());
 
     // Check if function is async
-    if input_fn.sig.asyncness.is_none() {
-        return Err(syn::Error::new_spanned(
-            &input_fn.sig,
-            "instrument macro can only be applied to async functions",
-        ));
-    }
+    let is_async = input_fn.sig.asyncness.is_some();
 
     // Extract function parameters for span attributes
     let param_names: Vec<_> = input_fn
@@ -183,7 +178,9 @@ fn instrument_impl(
     let ret_capture = if args.ret {
         quote! {
             if let Ok(ref ret_val) = result {
-                span.set_attribute(::opentelemetry::KeyValue::new("return", format!("{:?}", ret_val)));
+                ::opentelemetry::trace::get_active_span(|span| {
+                    span.set_attribute(::opentelemetry::KeyValue::new("return", format!("{:?}", ret_val)));
+                });
             }
         }
     } else {
@@ -195,11 +192,15 @@ fn instrument_impl(
         quote! {
             match &result {
                 Ok(_) => {
-                    span.set_status(::opentelemetry::trace::Status::Ok);
+                    ::opentelemetry::trace::get_active_span(|span| {
+                        span.set_status(::opentelemetry::trace::Status::Ok);
+                    });
                 }
                 Err(e) => {
-                    span.set_attribute(::opentelemetry::KeyValue::new("error", format!("{:?}", e)));
-                    span.set_status(::opentelemetry::trace::Status::error(format!("{:?}", e)));
+                    ::opentelemetry::trace::get_active_span(|span| {
+                        span.set_attribute(::opentelemetry::KeyValue::new("error", format!("{:?}", e)));
+                        span.set_status(::opentelemetry::trace::Status::error(format!("{:?}", e)));
+                    });
                 }
             }
         }
@@ -207,10 +208,14 @@ fn instrument_impl(
         quote! {
             match &result {
                 Ok(_) => {
-                    span.set_status(::opentelemetry::trace::Status::Ok);
+                    ::opentelemetry::trace::get_active_span(|span| {
+                        span.set_status(::opentelemetry::trace::Status::Ok);
+                    });
                 }
                 Err(e) => {
-                    span.set_status(::opentelemetry::trace::Status::error(format!("{:?}", e)));
+                    ::opentelemetry::trace::get_active_span(|span| {
+                        span.set_status(::opentelemetry::trace::Status::error(format!("{:?}", e)));
+                    });
                 }
             }
         }
@@ -238,30 +243,46 @@ fn instrument_impl(
         }
     };
 
+    // Generate the result execution block based on whether function is async or sync
+    let result_block = if is_async {
+        quote! {
+            let result = async move #original_block.with_current_context().await;
+        }
+    } else {
+        quote! {
+            let result = #original_block;
+        }
+    };
+
+    // Generate the imports based on whether function is async or sync
+    let imports = if is_async {
+        quote! {
+            use ::opentelemetry::{trace::{Tracer, Span}, context::FutureExt, global};
+        }
+    } else {
+        quote! {
+            use ::opentelemetry::{trace::{Tracer, Span}, global};
+        }
+    };
+
     // Create the instrumented function body
     let instrumented_body = quote! {
         {
-            use ::opentelemetry::{trace::{Tracer, Span}, context::FutureExt, global};
+            #imports
 
             let tracer = global::tracer(_OTEL_TRACER_NAME);
             #span_creation
-
-            // Set parameter attributes
             #(#span_attrs)*
-
-            // Set custom field attributes
             #(#field_attrs)*
+            let _guard = ::opentelemetry::trace::mark_span_as_active(span);
 
             // Execute the original function with instrumentation
-            let result = async move #original_block.with_current_context().await;
-
+            #result_block
             // Capture return value if requested
             #ret_capture
-
             // Set result status and error capture
             #err_capture
 
-            span.end();
             result
         }
     };

@@ -104,6 +104,64 @@ fn get_parent_context() -> opentelemetry::Context {
     opentelemetry::Context::current_with_span(span)
 }
 
+// Sync function tests
+#[instrument]
+fn sync_test_function(param: &str) -> Result<String, String> {
+    Ok(format!("Hello, {param}"))
+}
+
+#[instrument]
+fn sync_failing_function() -> Result<(), String> {
+    Err("Test error".to_string())
+}
+
+#[instrument(skip(password))]
+fn sync_test_skip_function(username: &str, _password: &str) -> Result<String, String> {
+    Ok(format!("Hello, {username}"))
+}
+
+#[instrument(skip_all)]
+fn sync_test_skip_all_function(_secret: &str, token: &str) -> Result<String, String> {
+    Ok(format!("Success: {token}"))
+}
+
+#[instrument(fields(custom_field = "custom_value", user_id = 123))]
+fn sync_test_fields_function(param: &str) -> Result<String, String> {
+    Ok(format!("Hello, {param}"))
+}
+
+#[instrument(ret)]
+fn sync_test_ret_function(param: &str) -> Result<String, String> {
+    Ok(format!("Hello, {param}"))
+}
+
+#[instrument(err)]
+fn sync_test_err_function() -> Result<(), String> {
+    Err("Test error".to_string())
+}
+
+#[instrument(name = "sync_custom_span_name")]
+fn sync_test_name_function(param: &str) -> Result<String, String> {
+    Ok(format!("Hello, {param}"))
+}
+
+#[instrument(skip(password), ret, err, fields(operation = "sync_login"))]
+fn sync_test_combined_function(username: &str, _password: &str) -> Result<String, String> {
+    if username == "admin" {
+        Ok(format!("Welcome, {username}"))
+    } else {
+        Err("Access denied".to_string())
+    }
+}
+
+#[instrument(parent = parent_ctx)]
+fn sync_test_parent_context_function(
+    param: &str,
+    parent_ctx: opentelemetry::Context,
+) -> Result<String, String> {
+    Ok(format!("Child span with param: {param}"))
+}
+
 #[tokio::test]
 async fn test_successful_instrumentation() {
     let result = test_function("world").await;
@@ -202,4 +260,76 @@ async fn test_parent_with_other_attributes() {
 
     let result = test_parent_with_other_attrs(parent_ctx, 21).await;
     assert_eq!(result.unwrap(), 42);
+}
+
+// Sync function tests
+#[test]
+fn test_sync_successful_instrumentation() {
+    let result = sync_test_function("world");
+    assert_eq!(result.unwrap(), "Hello, world");
+}
+
+#[test]
+fn test_sync_error_instrumentation() {
+    let result = sync_failing_function();
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_sync_skip_attribute() {
+    let result = sync_test_skip_function("admin", "secret123");
+    assert_eq!(result.unwrap(), "Hello, admin");
+}
+
+#[test]
+fn test_sync_skip_all_attribute() {
+    let result = sync_test_skip_all_function("secret", "token");
+    assert_eq!(result.unwrap(), "Success: token");
+}
+
+#[test]
+fn test_sync_fields_attribute() {
+    let result = sync_test_fields_function("world");
+    assert_eq!(result.unwrap(), "Hello, world");
+}
+
+#[test]
+fn test_sync_ret_attribute() {
+    let result = sync_test_ret_function("world");
+    assert_eq!(result.unwrap(), "Hello, world");
+}
+
+#[test]
+fn test_sync_err_attribute() {
+    let result = sync_test_err_function();
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_sync_name_attribute() {
+    let result = sync_test_name_function("world");
+    assert_eq!(result.unwrap(), "Hello, world");
+}
+
+#[test]
+fn test_sync_combined_attributes_success() {
+    let result = sync_test_combined_function("admin", "password123");
+    assert_eq!(result.unwrap(), "Welcome, admin");
+}
+
+#[test]
+fn test_sync_combined_attributes_failure() {
+    let result = sync_test_combined_function("user", "password123");
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_sync_parent_context_attribute() {
+    use opentelemetry::{global, trace::Tracer};
+    let tracer = global::tracer("test-tracer");
+    let parent_span = tracer.start("parent-span");
+    let parent_ctx = opentelemetry::Context::current_with_span(parent_span);
+
+    let result = sync_test_parent_context_function("test", parent_ctx);
+    assert_eq!(result.unwrap(), "Child span with param: test");
 }
