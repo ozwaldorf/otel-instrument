@@ -1,7 +1,10 @@
 [package]
 name = "otel-instrument"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
+license = "MIT"
+description = "Instrument macro for opentelemetry"
+repository = "https://github.com/ozwaldorf/otel-instrument"
 
 [lib]
 proc-macro = true
