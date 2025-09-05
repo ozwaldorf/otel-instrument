@@ -175,17 +175,18 @@ fn instrument_impl(
     let original_block = &input_fn.block;
 
     // Generate return value capture if requested
-    let ret_capture = if args.ret {
-        quote! {
+    let ret_capture = args
+        .ret
+        .then_some(quote! {
             if let Ok(ref ret_val) = result {
                 ::opentelemetry::trace::get_active_span(|span| {
-                    span.set_attribute(::opentelemetry::KeyValue::new("return", format!("{:?}", ret_val)));
+                    span.set_attribute(
+                        ::opentelemetry::KeyValue::new("return", format!("{:?}", ret_val))
+                    );
                 });
             }
-        }
-    } else {
-        quote! {}
-    };
+        })
+        .unwrap_or_default();
 
     // Generate error capture if requested (enhanced version)
     let err_capture = if args.err {
@@ -200,23 +201,17 @@ fn instrument_impl(
                     ::opentelemetry::trace::get_active_span(|span| {
                         span.set_attribute(::opentelemetry::KeyValue::new("error", format!("{:?}", e)));
                         span.set_status(::opentelemetry::trace::Status::error(format!("{:?}", e)));
+                        span.record_error(e.as_ref());
                     });
                 }
             }
         }
     } else {
         quote! {
-            match &result {
-                Ok(_) => {
-                    ::opentelemetry::trace::get_active_span(|span| {
-                        span.set_status(::opentelemetry::trace::Status::Ok);
-                    });
-                }
-                Err(e) => {
-                    ::opentelemetry::trace::get_active_span(|span| {
-                        span.set_status(::opentelemetry::trace::Status::error(format!("{:?}", e)));
-                    });
-                }
+            if let Ok(_) = result {
+               ::opentelemetry::trace::get_active_span(|span| {
+                   span.set_status(::opentelemetry::trace::Status::Ok);
+               });
             }
         }
     };
@@ -224,65 +219,49 @@ fn instrument_impl(
     // Generate span creation code based on whether parent is specified
     let span_creation = if let Some(parent_expr) = &args.parent {
         quote! {
-            let parent_ctx = {
-                use ::opentelemetry::Context;
-                let parent_value = #parent_expr;
-
-                // The parent_value should implement Into<Context> or be a Context
-                // This allows for flexibility in what users can pass:
-                // - Context directly
-                // - Span (which can be converted to Context)
-                // - SpanContext (which can be used to create Context)
-                parent_value.into()
-            };
+            use ::opentelemetry::Context;
+            // The parent_value should implement Into<Context> or be a Context
+            // This allows for flexibility in what users can pass:
+            // - Context directly
+            // - Span (which can be converted to Context)
+            // - SpanContext (which can be used to create Context)
+            let parent_ctx = #parent_expr.into();
             let mut span = tracer.start_with_context(#span_name, &parent_ctx);
         }
     } else {
-        quote! {
-            let mut span = tracer.start(#span_name);
-        }
+        quote! { let mut span = tracer.start(#span_name); }
     };
 
     // Generate the result execution block based on whether function is async or sync
     let result_block = if is_async {
         quote! {
+            use ::opentelemetry::context::FutureExt;
             let result = async move #original_block.with_current_context().await;
         }
     } else {
         quote! {
-            let result = #original_block;
+            let _guard = ::opentelemetry::trace::mark_span_as_active(span);
+            let closure = move || { #original_block };
+            let result = closure();
         }
     };
 
-    // Generate the imports based on whether function is async or sync
-    let imports = if is_async {
-        quote! {
-            use ::opentelemetry::{trace::{Tracer, Span}, context::FutureExt, global};
-        }
-    } else {
-        quote! {
-            use ::opentelemetry::{trace::{Tracer, Span}, global};
-        }
-    };
+    let end_block = is_async
+        .then_some(quote! { span.end(); })
+        .unwrap_or_default();
 
     // Create the instrumented function body
     let instrumented_body = quote! {
         {
-            #imports
-
+            use ::opentelemetry::{trace::{Tracer, Span}, global};
             let tracer = global::tracer(_OTEL_TRACER_NAME);
             #span_creation
             #(#span_attrs)*
             #(#field_attrs)*
-            let _guard = ::opentelemetry::trace::mark_span_as_active(span);
-
-            // Execute the original function with instrumentation
             #result_block
-            // Capture return value if requested
             #ret_capture
-            // Set result status and error capture
             #err_capture
-
+            #end_block
             result
         }
     };

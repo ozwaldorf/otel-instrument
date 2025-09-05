@@ -1,3 +1,4 @@
+use eyre::{Result, bail};
 use opentelemetry::trace::TraceContextExt;
 use otel_instrument::{instrument, tracer_name};
 
@@ -5,70 +6,70 @@ tracer_name!("asdf");
 
 // Basic functionality tests
 #[instrument]
-async fn test_function(param: &str) -> Result<String, String> {
+async fn test_function(param: &str) -> Result<String> {
     Ok(format!("Hello, {param}"))
 }
 
 #[instrument]
-async fn failing_function() -> Result<(), String> {
-    Err("Test error".to_string())
+async fn failing_function() -> Result<()> {
+    bail!("Test error")
 }
 
 // Test skip functionality
 #[instrument(skip(password))]
-async fn test_skip_function(username: &str, _password: &str) -> Result<String, String> {
+async fn test_skip_function(username: &str, _password: &str) -> Result<String> {
     Ok(format!("Hello, {username}"))
 }
 
 // Test skip_all functionality
 #[instrument(skip_all)]
-async fn test_skip_all_function(_secret: &str, token: &str) -> Result<String, String> {
+async fn test_skip_all_function(_secret: &str, token: &str) -> Result<String> {
     Ok(format!("Success: {token}"))
 }
 
 // Test fields functionality
 #[instrument(fields(custom_field = "custom_value", user_id = 123))]
-async fn test_fields_function(param: &str) -> Result<String, String> {
+async fn test_fields_function(param: &str) -> Result<String> {
     Ok(format!("Hello, {param}"))
 }
 
 // Test ret functionality
 #[instrument(ret)]
-async fn test_ret_function(param: &str) -> Result<String, String> {
+async fn test_ret_function(param: &str) -> Result<String> {
     Ok(format!("Hello, {param}"))
 }
 
 // Test err functionality
 #[instrument(err)]
-async fn test_err_function() -> Result<(), String> {
-    Err("Test error".to_string())
+async fn test_err_function() -> Result<()> {
+    bail!("Test error")
 }
 
 // Test name functionality
 #[instrument(name = "custom_span_name")]
-async fn test_name_function(param: &str) -> Result<String, String> {
+async fn test_name_function(param: &str) -> Result<String> {
     Ok(format!("Hello, {param}"))
 }
 
 // Test name with empty string (should use function name as fallback)
 #[instrument(name = "")]
-async fn test_empty_name_function() -> Result<String, String> {
+async fn test_empty_name_function() -> Result<String> {
     Ok("test".to_string())
 }
 
 // Test name combined with other attributes
 #[instrument(name = "login_operation", skip(password), ret)]
-async fn test_name_with_other_attrs(username: &str, _password: &str) -> Result<String, String> {
+async fn test_name_with_other_attrs(username: &str, _password: &str) -> Result<String> {
     Ok(format!("User: {username}"))
 }
 
 // Test combination of features
 #[instrument(skip(password), ret, err, fields(operation = "login"))]
-async fn test_combined_function(username: &str, _password: &str) -> Result<String, String> {
+async fn test_combined_function(username: &str, _password: &str) -> Result<String> {
     if username == "admin" {
         Ok(format!("Welcome, {username}"))
     } else {
-        Err("Access denied".to_string())
+        bail!("Access denied")
     }
 }
 
@@ -77,13 +78,13 @@ async fn test_combined_function(username: &str, _password: &str) -> Result<Strin
 async fn test_parent_context_function(
     param: &str,
     parent_ctx: opentelemetry::Context,
-) -> Result<String, String> {
+) -> Result<String> {
     Ok(format!("Child span with param: {param}"))
 }
 
 // Test parent attribute with expression
 #[instrument(parent = get_parent_context())]
-async fn test_parent_expression_function(param: &str) -> Result<String, String> {
+async fn test_parent_expression_function(param: &str) -> Result<String> {
     Ok(format!("Child span with param: {param}"))
 }
 
@@ -92,7 +93,7 @@ async fn test_parent_expression_function(param: &str) -> Result<String, String> 
 async fn test_parent_with_other_attrs(
     parent_ctx: opentelemetry::Context,
     value: i32,
-) -> Result<i32, String> {
+) -> Result<i32> {
     Ok(value * 2)
 }
 
@@ -106,51 +107,51 @@ fn get_parent_context() -> opentelemetry::Context {
 
 // Sync function tests
 #[instrument]
-fn sync_test_function(param: &str) -> Result<String, String> {
+fn sync_test_function(param: &str) -> Result<String> {
     Ok(format!("Hello, {param}"))
 }
 
 #[instrument]
-fn sync_failing_function() -> Result<(), String> {
-    Err("Test error".to_string())
+fn sync_failing_function() -> Result<()> {
+    bail!("Test error")
 }
 
 #[instrument(skip(password))]
-fn sync_test_skip_function(username: &str, _password: &str) -> Result<String, String> {
+fn sync_test_skip_function(username: &str, _password: &str) -> Result<String> {
     Ok(format!("Hello, {username}"))
 }
 
 #[instrument(skip_all)]
-fn sync_test_skip_all_function(_secret: &str, token: &str) -> Result<String, String> {
+fn sync_test_skip_all_function(_secret: &str, token: &str) -> Result<String> {
     Ok(format!("Success: {token}"))
 }
 
 #[instrument(fields(custom_field = "custom_value", user_id = 123))]
-fn sync_test_fields_function(param: &str) -> Result<String, String> {
+fn sync_test_fields_function(param: &str) -> Result<String> {
     Ok(format!("Hello, {param}"))
 }
 
 #[instrument(ret)]
-fn sync_test_ret_function(param: &str) -> Result<String, String> {
+fn sync_test_ret_function(param: &str) -> Result<String> {
     Ok(format!("Hello, {param}"))
 }
 
 #[instrument(err)]
-fn sync_test_err_function() -> Result<(), String> {
-    Err("Test error".to_string())
+fn sync_test_err_function() -> Result<()> {
+    bail!("Test error")
 }
 
 #[instrument(name = "sync_custom_span_name")]
-fn sync_test_name_function(param: &str) -> Result<String, String> {
+fn sync_test_name_function(param: &str) -> Result<String> {
     Ok(format!("Hello, {param}"))
 }
 
 #[instrument(skip(password), ret, err, fields(operation = "sync_login"))]
-fn sync_test_combined_function(username: &str, _password: &str) -> Result<String, String> {
+fn sync_test_combined_function(username: &str, _password: &str) -> Result<String> {
     if username == "admin" {
         Ok(format!("Welcome, {username}"))
     } else {
-        Err("Access denied".to_string())
+        bail!("Access denied")
     }
 }
 
@@ -158,7 +159,7 @@ fn sync_test_combined_function(username: &str, _password: &str) -> Result<String
 fn sync_test_parent_context_function(
     param: &str,
     parent_ctx: opentelemetry::Context,
-) -> Result<String, String> {
+) -> Result<String> {
     Ok(format!("Child span with param: {param}"))
 }
 
