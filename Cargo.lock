@@ -607,7 +607,7 @@ dependencies = [
 
 [[package]]
 name = "otel-instrument"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "eyre",
  "opentelemetry",
