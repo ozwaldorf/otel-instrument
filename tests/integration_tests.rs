@@ -19,6 +19,19 @@ fn setup_otlp_tracer() -> Result<SdkTracerProvider> {
     Ok(tracer_provider)
 }
 
+struct _Test;
+impl _Test {
+    #[instrument]
+    async fn test_function(self, param: &str) -> Result<String> {
+        Ok(format!("Hello, {param}"))
+    }
+
+    #[instrument]
+    fn sync_test_function(self, param: &str) -> Result<String> {
+        Ok(format!("Hello, {param}"))
+    }
+}
+
 // Basic functionality tests
 #[instrument]
 async fn test_function(param: &str) -> Result<String> {
@@ -58,12 +71,6 @@ async fn test_ret_function(param: &str) -> Result<String> {
 #[instrument(err = e.as_ref())]
 async fn test_err_function() -> Result<()> {
     bail!("Test error")
-}
-
-// Test err functionality with eyre support
-#[instrument(err = e.as_ref())]
-async fn test_err_eyre_function() -> Result<()> {
-    bail!("Test eyre error")
 }
 
 // Test name functionality

@@ -5,6 +5,7 @@ use quote::quote;
 use std::collections::HashSet;
 use syn::{
     Expr, Ident, ItemFn, Token,
+    ext::IdentExt,
     parse::{Parse, ParseStream},
     parse_macro_input,
     spanned::Spanned,
@@ -34,13 +35,8 @@ impl Parse for InstrumentArgs {
                 "skip" => {
                     let content;
                     syn::parenthesized!(content in input);
-                    while !content.is_empty() {
-                        let param: Ident = content.parse()?;
-                        args.skip.insert(param.to_string());
-                        if !content.is_empty() {
-                            content.parse::<Token![,]>()?;
-                        }
-                    }
+                    let names = content.parse_terminated(Ident::parse_any, Token![,])?;
+                    args.skip = names.into_iter().map(|i| i.to_string()).collect();
                 }
                 "fields" => {
                     let content;
@@ -144,6 +140,7 @@ fn instrument_impl(
     let is_async = input_fn.sig.asyncness.is_some();
 
     // Extract function parameters for span attributes
+    let mut self_ident = None;
     let param_names: Vec<_> = input_fn
         .sig
         .inputs
@@ -151,12 +148,15 @@ fn instrument_impl(
         .filter_map(|arg| match arg {
             syn::FnArg::Typed(pat_type) => {
                 if let syn::Pat::Ident(ident) = pat_type.pat.as_ref() {
-                    Some(&ident.ident)
+                    Some(ident.ident.clone())
                 } else {
                     None
                 }
             }
-            _ => None,
+            syn::FnArg::Receiver(recv) => {
+                self_ident = Some(Ident::new("self", recv.span()));
+                None
+            }
         })
         .collect();
 
@@ -242,14 +242,27 @@ fn instrument_impl(
     };
 
     let mut original_fn = input_fn.clone();
-    original_fn.sig.ident = syn::Ident::new("_original_impl", input_fn.sig.span());
+    original_fn.sig.ident = syn::Ident::new(
+        &(input_fn.sig.ident.to_string() + "original"),
+        input_fn.sig.span(),
+    );
+    let original_ident = original_fn.sig.ident.clone();
+    let call = if let Some(ident) = self_ident {
+        quote! {
+            #ident.#original_ident(#(#param_names),*)
+        }
+    } else {
+        quote! {
+            #original_ident(#(#param_names),*)
+        }
+    };
 
     // Generate the result execution block based on whether function is async or sync
     let result_block = if is_async {
         quote! {
             use ::opentelemetry::{context::FutureExt, trace::TraceContextExt};
             let result = async move {
-                let result = _original_impl(#(#param_names),*).await;
+                let result = #call.await;
                 #ret_capture
                 #err_capture
                 result
@@ -260,7 +273,7 @@ fn instrument_impl(
     } else {
         quote! {
             let _guard = ::opentelemetry::trace::mark_span_as_active(span);
-            let result = _original_impl(#(#param_names),*);
+            let result = #call;
             #ret_capture
             #err_capture
         }
@@ -270,7 +283,7 @@ fn instrument_impl(
     let instrumented_body = quote! {
         {
             use ::opentelemetry::{trace::{Tracer, Span}, global};
-            #original_fn
+
             let tracer = global::tracer(_OTEL_TRACER_NAME);
             #span_creation
             #(#span_attrs)*
@@ -283,5 +296,9 @@ fn instrument_impl(
     // Replace the function body
     input_fn.block = syn::parse2(instrumented_body)?;
 
-    Ok(quote! { #input_fn })
+    Ok(quote! {
+        #[doc(hidden)]
+        #original_fn
+        #input_fn
+    })
 }
