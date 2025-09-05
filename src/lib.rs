@@ -3,7 +3,12 @@
 use proc_macro::TokenStream;
 use quote::quote;
 use std::collections::HashSet;
-use syn::{Expr, Ident, ItemFn, Token, parse::Parse, parse::ParseStream, parse_macro_input};
+use syn::{
+    Expr, Ident, ItemFn, Token,
+    parse::{Parse, ParseStream},
+    parse_macro_input,
+    spanned::Spanned,
+};
 
 #[derive(Default)]
 struct InstrumentArgs {
@@ -11,7 +16,7 @@ struct InstrumentArgs {
     skip_all: bool,
     fields: Vec<(String, Expr)>,
     ret: bool,
-    err: bool,
+    err: Option<Expr>,
     name: Option<String>,
     parent: Option<Expr>,
 }
@@ -54,7 +59,13 @@ impl Parse for InstrumentArgs {
                     args.ret = true;
                 }
                 "err" => {
-                    args.err = true;
+                    if input.peek(Token![=]) {
+                        input.parse::<Token![=]>()?;
+                        let err_expr: Expr = input.parse()?;
+                        args.err = Some(err_expr);
+                    } else {
+                        args.err = Some(syn::parse_quote!(e));
+                    }
                 }
                 "name" => {
                     input.parse::<Token![=]>()?;
@@ -171,9 +182,6 @@ fn instrument_impl(
         }
     });
 
-    // Get the original function body
-    let original_block = &input_fn.block;
-
     // Generate return value capture if requested
     let ret_capture = args
         .ret
@@ -189,7 +197,7 @@ fn instrument_impl(
         .unwrap_or_default();
 
     // Generate error capture if requested (enhanced version)
-    let err_capture = if args.err {
+    let err_capture = if let Some(err_expr) = &args.err {
         quote! {
             match &result {
                 Ok(_) => {
@@ -201,7 +209,8 @@ fn instrument_impl(
                     ::opentelemetry::trace::get_active_span(|span| {
                         span.set_attribute(::opentelemetry::KeyValue::new("error", format!("{:?}", e)));
                         span.set_status(::opentelemetry::trace::Status::error(format!("{:?}", e)));
-                        span.record_error(e.as_ref());
+                        let err = #err_expr;
+                        span.record_error(err);
                     });
                 }
             }
@@ -225,43 +234,48 @@ fn instrument_impl(
             // - Context directly
             // - Span (which can be converted to Context)
             // - SpanContext (which can be used to create Context)
-            let parent_ctx = #parent_expr.into();
+            let parent_ctx = #parent_expr.clone().into();
             let mut span = tracer.start_with_context(#span_name, &parent_ctx);
         }
     } else {
         quote! { let mut span = tracer.start(#span_name); }
     };
 
+    let mut original_fn = input_fn.clone();
+    original_fn.sig.ident = syn::Ident::new("_original_impl", input_fn.sig.span());
+
     // Generate the result execution block based on whether function is async or sync
     let result_block = if is_async {
         quote! {
-            use ::opentelemetry::context::FutureExt;
-            let result = async move #original_block.with_current_context().await;
+            use ::opentelemetry::{context::FutureExt, trace::TraceContextExt};
+            let result = async move {
+                let result = _original_impl(#(#param_names),*).await;
+                #ret_capture
+                #err_capture
+                result
+            }
+            .with_context(::opentelemetry::Context::current_with_span(span))
+            .await;
         }
     } else {
         quote! {
             let _guard = ::opentelemetry::trace::mark_span_as_active(span);
-            let closure = move || { #original_block };
-            let result = closure();
+            let result = _original_impl(#(#param_names),*);
+            #ret_capture
+            #err_capture
         }
     };
-
-    let end_block = is_async
-        .then_some(quote! { span.end(); })
-        .unwrap_or_default();
 
     // Create the instrumented function body
     let instrumented_body = quote! {
         {
             use ::opentelemetry::{trace::{Tracer, Span}, global};
+            #original_fn
             let tracer = global::tracer(_OTEL_TRACER_NAME);
             #span_creation
             #(#span_attrs)*
             #(#field_attrs)*
             #result_block
-            #ret_capture
-            #err_capture
-            #end_block
             result
         }
     };

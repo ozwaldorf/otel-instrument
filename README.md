@@ -66,7 +66,9 @@ tracer_name!("auth-service");
 
 #[derive(Debug)]
 struct User { name: String }
-#[derive(Debug)]
+
+#[derive(thiserror::Error, Debug)]
+#[error("failed to authenticate")]
 struct AuthError;
 
 #[instrument(skip(password))]
@@ -117,8 +119,9 @@ use otel_instrument::{instrument, tracer_name};
 
 tracer_name!("math-service");
 
-#[derive(Debug)]
+#[derive(thiserror::Error, Debug)]
 enum MathError {
+    #[error("division by zero")]
     DivisionByZero,
 }
 
@@ -178,7 +181,9 @@ tracer_name!("auth-service");
 
 #[derive(Debug)]
 struct AuthToken { token: String }
-#[derive(Debug)]
+
+#[derive(thiserror::Error, Debug)]
+#[error("failed to authenticate")]
 struct AuthError;
 
 #[instrument(
@@ -198,7 +203,7 @@ async fn authenticate_user(
 // Combined with parent
 #[instrument(
     parent = parent_ctx,
-    name = "user_validation", 
+    name = "user_validation",
     skip(password),
     ret
 )]
@@ -220,7 +225,8 @@ use otel_instrument::{instrument, tracer_name};
 
 tracer_name!("sync-service");
 
-#[derive(Debug)]
+#[derive(thiserror::Error, Debug)]
+#[error("failed to process")]
 struct ProcessingError;
 
 // Basic sync function
