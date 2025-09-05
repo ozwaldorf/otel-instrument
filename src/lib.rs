@@ -43,8 +43,13 @@ impl Parse for InstrumentArgs {
                     syn::parenthesized!(content in input);
                     while !content.is_empty() {
                         let field_name: Ident = content.parse()?;
-                        content.parse::<Token![=]>()?;
-                        let field_expr: Expr = content.parse()?;
+                        let field_expr = if content.peek(Token![=]) {
+                            content.parse::<Token![=]>()?;
+                            content.parse::<Expr>()?
+                        } else {
+                            // Fallback to name = name shorthand
+                            syn::parse_quote!(#field_name)
+                        };
                         args.fields.push((field_name.to_string(), field_expr));
                         if !content.is_empty() {
                             content.parse::<Token![,]>()?;

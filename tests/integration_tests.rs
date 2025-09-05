@@ -19,7 +19,10 @@ fn setup_otlp_tracer() -> Result<SdkTracerProvider> {
     Ok(tracer_provider)
 }
 
-struct _Test;
+struct _Test {
+    id: u32,
+}
+
 impl _Test {
     #[instrument]
     async fn test_function(self, param: &str) -> Result<String> {
@@ -29,6 +32,37 @@ impl _Test {
     #[instrument]
     fn sync_test_function(self, param: &str) -> Result<String> {
         Ok(format!("Hello, {param}"))
+    }
+
+    // Test self token in fields
+    #[instrument(fields(struct_id = self.id, param_value = param))]
+    async fn test_self_in_fields(self, param: &str) -> Result<String> {
+        Ok(format!("Hello, {param} from id {}", self.id))
+    }
+
+    #[instrument(fields(struct_id = self.id, param_value = param))]
+    fn sync_test_self_in_fields(self, param: &str) -> Result<String> {
+        Ok(format!("Hello, {param} from id {}", self.id))
+    }
+
+    // Test shorthand field syntax (name without =) - using variables in scope
+    #[instrument(fields(param))]
+    async fn test_shorthand_fields(self, param: &str) -> Result<String> {
+        let id = self.id;
+        Ok(format!("Hello, {param} with id {id}"))
+    }
+
+    #[instrument(fields(param))]
+    fn sync_test_shorthand_fields(self, param: &str) -> Result<String> {
+        let id = self.id;
+        Ok(format!("Hello, {param} with id {id}"))
+    }
+
+    // Test mixed shorthand and explicit field syntax
+    #[instrument(fields(param, custom_field = "custom_value"))]
+    async fn test_mixed_fields(self, param: &str) -> Result<String> {
+        let id = self.id * 2;
+        Ok(format!("Mixed: {param} with doubled id {id}"))
     }
 }
 
@@ -59,6 +93,12 @@ async fn test_skip_all_function(_secret: &str, token: &str) -> Result<String> {
 #[instrument(fields(custom_field = "custom_value", user_id = 123))]
 async fn test_fields_function(param: &str) -> Result<String> {
     Ok(format!("Hello, {param}"))
+}
+
+// Test shorthand fields functionality for regular functions
+#[instrument(fields(param, user_count))]
+async fn test_shorthand_fields_function(param: &str, user_count: i32) -> Result<String> {
+    Ok(format!("Hello, {param}, count: {user_count}"))
 }
 
 // Test ret functionality
@@ -412,5 +452,58 @@ fn test_sync_parent_context_attribute() {
 
     let result = sync_test_parent_context_function("test", parent_ctx);
     assert_eq!(result.unwrap(), "Child span with param: test");
+    tracer_provider.shutdown().unwrap();
+}
+
+#[tokio::test]
+async fn test_self_in_fields_async() {
+    let tracer_provider = setup_otlp_tracer().unwrap();
+    let test_instance = _Test { id: 42 };
+    let result = test_instance.test_self_in_fields("world").await;
+    assert_eq!(result.unwrap(), "Hello, world from id 42");
+    tracer_provider.shutdown().unwrap();
+}
+
+#[test]
+fn test_self_in_fields_sync() {
+    let tracer_provider = setup_otlp_tracer().unwrap();
+    let test_instance = _Test { id: 123 };
+    let result = test_instance.sync_test_self_in_fields("universe");
+    assert_eq!(result.unwrap(), "Hello, universe from id 123");
+    tracer_provider.shutdown().unwrap();
+}
+
+#[tokio::test]
+async fn test_shorthand_fields_async() {
+    let tracer_provider = setup_otlp_tracer().unwrap();
+    let test_instance = _Test { id: 456 };
+    let result = test_instance.test_shorthand_fields("test").await;
+    assert_eq!(result.unwrap(), "Hello, test with id 456");
+    tracer_provider.shutdown().unwrap();
+}
+
+#[test]
+fn test_shorthand_fields_sync() {
+    let tracer_provider = setup_otlp_tracer().unwrap();
+    let test_instance = _Test { id: 789 };
+    let result = test_instance.sync_test_shorthand_fields("sync");
+    assert_eq!(result.unwrap(), "Hello, sync with id 789");
+    tracer_provider.shutdown().unwrap();
+}
+
+#[tokio::test]
+async fn test_mixed_fields() {
+    let tracer_provider = setup_otlp_tracer().unwrap();
+    let test_instance = _Test { id: 100 };
+    let result = test_instance.test_mixed_fields("mixed").await;
+    assert_eq!(result.unwrap(), "Mixed: mixed with doubled id 200");
+    tracer_provider.shutdown().unwrap();
+}
+
+#[tokio::test]
+async fn test_shorthand_fields_function_test() {
+    let tracer_provider = setup_otlp_tracer().unwrap();
+    let result = test_shorthand_fields_function("world", 42).await;
+    assert_eq!(result.unwrap(), "Hello, world, count: 42");
     tracer_provider.shutdown().unwrap();
 }
