@@ -19,6 +19,20 @@ fn setup_otlp_tracer() -> Result<SdkTracerProvider> {
     Ok(tracer_provider)
 }
 
+// Test struct destructuring patterns
+#[instrument]
+fn instrumented_struct_destructure(_Test { id }: _Test) -> Result<String> {
+    Ok(format!("Processing id: {}", id))
+}
+
+// Test tuple struct destructuring patterns  
+struct StateWrapper(String);
+
+#[instrument]
+fn instrumented_tuple_struct_destructure(StateWrapper(state): StateWrapper) -> Result<String> {
+    Ok(format!("State: {}", state))
+}
+
 struct _Test {
     id: u32,
 }
@@ -505,5 +519,23 @@ async fn test_shorthand_fields_function_test() {
     let tracer_provider = setup_otlp_tracer().unwrap();
     let result = test_shorthand_fields_function("world", 42).await;
     assert_eq!(result.unwrap(), "Hello, world, count: 42");
+    tracer_provider.shutdown().unwrap();
+}
+
+#[tokio::test]
+async fn test_struct_destructuring() {
+    let tracer_provider = setup_otlp_tracer().unwrap();
+    let test_instance = _Test { id: 42 };
+    let result = instrumented_struct_destructure(test_instance);
+    assert_eq!(result.unwrap(), "Processing id: 42");
+    tracer_provider.shutdown().unwrap();
+}
+
+#[tokio::test]
+async fn test_tuple_struct_destructuring() {
+    let tracer_provider = setup_otlp_tracer().unwrap();
+    let state_wrapper = StateWrapper("app_state".to_string());
+    let result = instrumented_tuple_struct_destructure(state_wrapper);
+    assert_eq!(result.unwrap(), "State: app_state");
     tracer_provider.shutdown().unwrap();
 }

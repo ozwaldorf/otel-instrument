@@ -133,6 +133,44 @@ pub fn instrument(args: TokenStream, input: TokenStream) -> TokenStream {
     }
 }
 
+fn extract_ident_from_pattern(pat: &syn::Pat) -> Option<Ident> {
+    match pat {
+        syn::Pat::Ident(ident) => Some(ident.ident.clone()),
+        syn::Pat::TupleStruct(tuple_struct) => {
+            // Handle patterns like State(state): State<AppState>
+            // Extract the first inner pattern if it's an identifier
+            if let Some(first_pattern) = tuple_struct.elems.first() {
+                extract_ident_from_pattern(first_pattern)
+            } else {
+                None
+            }
+        }
+        syn::Pat::Tuple(tuple) => {
+            // Handle tuple destructuring like (a, b): (i32, i32)
+            // For now, we'll take the first element
+            if let Some(first_pattern) = tuple.elems.first() {
+                extract_ident_from_pattern(first_pattern)
+            } else {
+                None
+            }
+        }
+        syn::Pat::Struct(struct_pat) => {
+            // Handle struct destructuring like User { name, age }: User
+            // For now, we'll take the first field
+            if let Some(first_field) = struct_pat.fields.first() {
+                if let syn::Member::Named(ident) = &first_field.member {
+                    Some(ident.clone())
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
 fn instrument_impl(
     args: InstrumentArgs,
     mut input_fn: ItemFn,
@@ -144,26 +182,24 @@ fn instrument_impl(
     // Check if function is async
     let is_async = input_fn.sig.asyncness.is_some();
 
-    // Extract function parameters for span attributes
+    // Extract function parameters for span attributes and function calls
     let mut self_ident = None;
-    let param_names: Vec<_> = input_fn
-        .sig
-        .inputs
-        .iter()
-        .filter_map(|arg| match arg {
+    let mut param_names = Vec::new();
+    let mut param_patterns = Vec::new();
+    
+    for arg in &input_fn.sig.inputs {
+        match arg {
             syn::FnArg::Typed(pat_type) => {
-                if let syn::Pat::Ident(ident) = pat_type.pat.as_ref() {
-                    Some(ident.ident.clone())
-                } else {
-                    None
+                param_patterns.push(pat_type.pat.clone());
+                if let Some(ident) = extract_ident_from_pattern(pat_type.pat.as_ref()) {
+                    param_names.push(ident);
                 }
             }
             syn::FnArg::Receiver(recv) => {
                 self_ident = Some(Ident::new("self", recv.span()));
-                None
             }
-        })
-        .collect();
+        }
+    }
 
     // Generate span attributes from parameters (respecting skip and skip_all)
     let span_attrs: Vec<_> = if args.skip_all {
@@ -254,11 +290,11 @@ fn instrument_impl(
     let original_ident = original_fn.sig.ident.clone();
     let call = if let Some(ident) = self_ident {
         quote! {
-            #ident.#original_ident(#(#param_names),*)
+            #ident.#original_ident(#(#param_patterns),*)
         }
     } else {
         quote! {
-            #original_ident(#(#param_names),*)
+            #original_ident(#(#param_patterns),*)
         }
     };
 
